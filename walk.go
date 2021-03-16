@@ -5,8 +5,6 @@ import (
 	"log"
 	"sync"
 	"time"
-
-	"github.com/hashicorp/terraform/tfdiags"
 )
 
 // Walker is used to walk every vertex of a graph in parallel.
@@ -59,7 +57,7 @@ type Walker struct {
 	// excluded from the final set.
 	//
 	// Readers and writers of either map must hold diagsLock.
-	diagsMap       map[Vertex]tfdiags.Diagnostics
+	errorsMap      map[Vertex][]error
 	upstreamFailed map[Vertex]struct{}
 	diagsLock      sync.Mutex
 }
@@ -113,23 +111,23 @@ type walkerVertex struct {
 // Wait will return as soon as all currently known vertices are complete.
 // If you plan on calling Update with more vertices in the future, you
 // should not call Wait until after this is done.
-func (w *Walker) Wait() tfdiags.Diagnostics {
+func (w *Walker) Wait() []error {
 	// Wait for completion
 	w.wait.Wait()
 
-	var diags tfdiags.Diagnostics
+	var errors []error
 	w.diagsLock.Lock()
-	for v, vDiags := range w.diagsMap {
+	for v, vErrors := range w.errorsMap {
 		if _, upstream := w.upstreamFailed[v]; upstream {
 			// Ignore diagnostics for nodes that had failed upstreams, since
 			// the downstream diagnostics are likely to be redundant.
 			continue
 		}
-		diags = diags.Append(vDiags)
+		errors = append(errors, vErrors...)
 	}
 	w.diagsLock.Unlock()
 
-	return diags
+	return errors
 }
 
 // Update updates the currently executing walk with the given graph.
@@ -375,26 +373,28 @@ func (w *Walker) walkVertex(v Vertex, info *walkerVertex) {
 	}
 
 	// Run our callback or note that our upstream failed
-	var diags tfdiags.Diagnostics
+	var errs []error
 	var upstreamFailed bool
 	if depsSuccess {
-		diags = w.Callback(v)
+		if err := w.Callback(v); err != nil {
+			errs = []error{w.Callback(v)}
+		}
 	} else {
 		log.Printf("[TRACE] dag/walk: upstream of %q errored, so skipping", VertexName(v))
 		// This won't be displayed to the user because we'll set upstreamFailed,
 		// but we need to ensure there's at least one error in here so that
 		// the failures will cascade downstream.
-		diags = diags.Append(errors.New("upstream dependencies failed"))
+		errs = append(errs, errors.New("upstream dependencies failed"))
 		upstreamFailed = true
 	}
 
 	// Record the result (we must do this after execution because we mustn't
 	// hold diagsLock while visiting a vertex.)
 	w.diagsLock.Lock()
-	if w.diagsMap == nil {
-		w.diagsMap = make(map[Vertex]tfdiags.Diagnostics)
+	if w.errorsMap == nil {
+		w.errorsMap = make(map[Vertex][]error)
 	}
-	w.diagsMap[v] = diags
+	w.errorsMap[v] = errs
 	if w.upstreamFailed == nil {
 		w.upstreamFailed = make(map[Vertex]struct{})
 	}
@@ -436,7 +436,7 @@ func (w *Walker) waitDeps(
 	w.diagsLock.Lock()
 	defer w.diagsLock.Unlock()
 	for dep := range deps {
-		if w.diagsMap[dep].HasErrors() {
+		if len(w.errorsMap[dep]) > 0 {
 			// One of our dependencies failed, so return false
 			doneCh <- false
 			return
