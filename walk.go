@@ -59,7 +59,7 @@ type Walker struct {
 	// Readers and writers of either map must hold diagsLock.
 	errorsMap      map[Vertex][]error
 	upstreamFailed map[Vertex]struct{}
-	diagsLock      sync.Mutex
+	errorsLock     sync.Mutex
 }
 
 func (w *Walker) init() {
@@ -116,7 +116,7 @@ func (w *Walker) Wait() []error {
 	w.wait.Wait()
 
 	var errors []error
-	w.diagsLock.Lock()
+	w.errorsLock.Lock()
 	for v, vErrors := range w.errorsMap {
 		if _, upstream := w.upstreamFailed[v]; upstream {
 			// Ignore diagnostics for nodes that had failed upstreams, since
@@ -125,7 +125,7 @@ func (w *Walker) Wait() []error {
 		}
 		errors = append(errors, vErrors...)
 	}
-	w.diagsLock.Unlock()
+	w.errorsLock.Unlock()
 
 	return errors
 }
@@ -377,7 +377,7 @@ func (w *Walker) walkVertex(v Vertex, info *walkerVertex) {
 	var upstreamFailed bool
 	if depsSuccess {
 		if err := w.Callback(v); err != nil {
-			errs = []error{w.Callback(v)}
+			errs = []error{err}
 		}
 	} else {
 		log.Printf("[TRACE] dag/walk: upstream of %q errored, so skipping", VertexName(v))
@@ -390,7 +390,7 @@ func (w *Walker) walkVertex(v Vertex, info *walkerVertex) {
 
 	// Record the result (we must do this after execution because we mustn't
 	// hold diagsLock while visiting a vertex.)
-	w.diagsLock.Lock()
+	w.errorsLock.Lock()
 	if w.errorsMap == nil {
 		w.errorsMap = make(map[Vertex][]error)
 	}
@@ -401,7 +401,7 @@ func (w *Walker) walkVertex(v Vertex, info *walkerVertex) {
 	if upstreamFailed {
 		w.upstreamFailed[v] = struct{}{}
 	}
-	w.diagsLock.Unlock()
+	w.errorsLock.Unlock()
 }
 
 func (w *Walker) waitDeps(
@@ -409,7 +409,6 @@ func (w *Walker) waitDeps(
 	deps map[Vertex]<-chan struct{},
 	doneCh chan<- bool,
 	cancelCh <-chan struct{}) {
-
 	// For each dependency given to us, wait for it to complete
 	for dep, depCh := range deps {
 	DepSatisfied:
@@ -433,8 +432,8 @@ func (w *Walker) waitDeps(
 	}
 
 	// Dependencies satisfied! We need to check if any errored
-	w.diagsLock.Lock()
-	defer w.diagsLock.Unlock()
+	w.errorsLock.Lock()
+	defer w.errorsLock.Unlock()
 	for dep := range deps {
 		if len(w.errorsMap[dep]) > 0 {
 			// One of our dependencies failed, so return false

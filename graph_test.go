@@ -19,6 +19,17 @@ func TestGraph_empty(t *testing.T) {
 	}
 }
 
+func TestGraphFoo(t *testing.T) {
+	var g AcyclicGraph
+	g.Add("A")
+	g.Add("B")
+	g.Add("c")
+	g.Connect(BasicEdge("A", "B"))
+	g.Connect(BasicEdge("B", "C"))
+	g.Connect(BasicEdge("C", "A"))
+	fmt.Println(g.Validate(), g.Cycles())
+}
+
 func TestGraph_basic(t *testing.T) {
 	var g Graph
 	g.Add(1)

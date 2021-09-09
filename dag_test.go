@@ -315,7 +315,6 @@ func TestAcyclicGraphWalk_error(t *testing.T) {
 	if !reflect.DeepEqual(visits, expected) {
 		t.Errorf("wrong visits\ngot:  %#v\nwant: %#v", visits, expected)
 	}
-
 }
 
 func BenchmarkDAG(b *testing.B) {

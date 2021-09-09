@@ -117,5 +117,4 @@ func TestSetCopy(t *testing.T) {
 	if !diff.Include(3) {
 		t.Fatalf("diff does not contain 3, got %#v", diff)
 	}
-
 }

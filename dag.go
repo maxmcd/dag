@@ -155,8 +155,8 @@ func (g *AcyclicGraph) Cycles() [][]Vertex {
 }
 
 // Walk walks the graph, calling your callback as each node is visited.
-// This will walk nodes in parallel if it can. The resulting diagnostics
-// contains problems from all graphs visited, in no particular order.
+// This will walk nodes in parallel if it can. The resulting errors
+// contain problems from all graphs visited, in no particular order.
 func (g *AcyclicGraph) Walk(cb WalkFunc) []error {
 	w := &Walker{Callback: cb, Reverse: true}
 	w.Update(g)
